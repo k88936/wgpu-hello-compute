@@ -3,19 +3,13 @@ mod shader;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-// Re-export wgpu utilities if needed
+use crate::shader::Pos;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::PollType;
-use crate::shader::Pos;
-// We'll use the generated shader module in this crate (`crate::shader`).
-// The original example logic is preserved as closely as possible.
 
 #[tokio::main]
 async fn main() {
-    // Original: parse arguments -> here we just hardcode same demo vector
-    let arguments: Vec<Pos> = vec![Pos { x: 1.0, y: 2.0 }, Pos { x: 3.0, y: 4.0 }];
-    println!("Parsed {} arguments", arguments.len());
-
+    //region System
     // Initialize logger (env_logger like original)
     env_logger::init();
 
@@ -45,11 +39,14 @@ async fn main() {
         trace: wgpu::Trace::Off,
     }))
     .expect("Failed to create device");
+    //endregion
 
+    //region prepare
     // Use generated shader module + pipeline layout helpers
     let pipeline = shader::compute::create_doubleMe_pipeline(&device);
 
     // Single storage buffer (shader does in-place modification); original sample had separate input/output.
+    let arguments: Vec<Pos> = vec![Pos { x: 1.0, y: 2.0 }, Pos { x: 3.0, y: 4.0 }];
     let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("storage"),
         contents: bytemuck::cast_slice(&arguments),
@@ -69,8 +66,9 @@ async fn main() {
             input: storage_buffer.as_entire_buffer_binding(),
         },
     );
-    // let bind_group0 =
+    //endregion
 
+    //region compute
     // Command encoding
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("encoder"),
@@ -117,4 +115,5 @@ async fn main() {
     let data = buffer_slice.get_mapped_range();
     let result: &[f32] = bytemuck::cast_slice(&data);
     println!("Result: {:?}", result);
+    //endregion
 }
