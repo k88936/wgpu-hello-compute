@@ -1,11 +1,12 @@
-mod shader; // make the generated shader module visible
+mod shader;
+
 use std::sync::Arc;
 use tokio::sync::Notify;
 
 // Re-export wgpu utilities if needed
-use crate::shader::Pos;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::PollType;
+use crate::shader::Pos;
 // We'll use the generated shader module in this crate (`crate::shader`).
 // The original example logic is preserved as closely as possible.
 
@@ -46,7 +47,7 @@ async fn main() {
     .expect("Failed to create device");
 
     // Use generated shader module + pipeline layout helpers
-    let pipeline = crate::shader::compute::create_doubleMe_pipeline(&device);
+    let pipeline = shader::compute::create_doubleMe_pipeline(&device);
 
     // Single storage buffer (shader does in-place modification); original sample had separate input/output.
     let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -62,9 +63,9 @@ async fn main() {
     });
 
     // Bind group via generated helper (encapsulates layout creation)
-    let bind_group0 = crate::shader::bind_groups::BindGroup0::from_bindings(
+    let bind_group0 = shader::bind_groups::BindGroup0::from_bindings(
         &device,
-        crate::shader::bind_groups::BindGroupLayout0 {
+        shader::bind_groups::BindGroupLayout0 {
             input: storage_buffer.as_entire_buffer_binding(),
         },
     );
@@ -81,10 +82,10 @@ async fn main() {
         });
         compute_pass.set_pipeline(&pipeline);
         // Using helper to set bind group(s)
-        crate::shader::set_bind_groups(&mut compute_pass, &bind_group0);
+        shader::set_bind_groups(&mut compute_pass, &bind_group0);
 
         // Workgroup sizing same as original logic
-        let workgroup_size = crate::shader::compute::DOUBLEME_WORKGROUP_SIZE[0] as usize; // 64
+        let workgroup_size = shader::compute::DOUBLEME_WORKGROUP_SIZE[0] as usize; // 64
         let workgroup_count = arguments.len().div_ceil(workgroup_size);
         compute_pass.dispatch_workgroups(workgroup_count as u32, 1, 1);
     }

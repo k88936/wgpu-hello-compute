@@ -110,7 +110,7 @@ pub mod compute {
     }
 }
 pub const ENTRY_DOUBLEME: &str = "doubleMe";
-pub const SOURCE: &str = include_str!("shader.wgsl");
+pub const SOURCE : & str = "// Input to the shader. The length of the array is determined by what buffer is bound.\n//\n// Out of bounds accesses\nstruct Pos{\nx: f32,\ny:f32,\n}\n@group(0) @binding(0)\nvar<storage, read_write> input: array<Pos>;\n// Output of the shader.  \n\n// Ideal workgroup size depends on the hardware, the workload, and other factors. However, it should\n// _generally_ be a multiple of 64. Common sizes are 64x1x1, 256x1x1; or 8x8x1, 16x16x1 for 2D workloads.\n@compute @workgroup_size(64)\nfn doubleMe(@builtin(global_invocation_id) global_id: vec3<u32>) {\n    // While compute invocations are 3d, we're only using one dimension.\n    let index = global_id.x;\n\n    // Because we're using a workgroup size of 64, if the input size isn't a multiple of 64,\n    // we will have some \"extra\" invocations. This is fine, but we should tell them to stop\n    // to avoid out-of-bounds accesses.\n    let array_length = arrayLength(&input);\n    if (global_id.x >= array_length) {\n        return;\n    }\n\n    // Do the multiply by two and write to the output.\n//    input[global_id.x].y = input[global_id.y].x *2;\n    input[global_id.x].y = input[global_id.x].x *2;\n}\n" ;
 pub fn create_shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
     let source = std::borrow::Cow::Borrowed(SOURCE);
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
