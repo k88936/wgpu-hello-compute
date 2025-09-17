@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 // Re-export wgpu utilities if needed
+use crate::shader::Pos;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::PollType;
 // We'll use the generated shader module in this crate (`crate::shader`).
@@ -11,7 +12,7 @@ use wgpu::wgt::PollType;
 #[tokio::main]
 async fn main() {
     // Original: parse arguments -> here we just hardcode same demo vector
-    let arguments: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+    let arguments: Vec<Pos> = vec![Pos { x: 1.0, y: 2.0 }, Pos { x: 3.0, y: 4.0 }];
     println!("Parsed {} arguments", arguments.len());
 
     // Initialize logger (env_logger like original)
@@ -45,45 +46,29 @@ async fn main() {
     .expect("Failed to create device");
 
     // Use generated shader module + pipeline layout helpers
-    let module = crate::shader::create_shader_module(&device);
-    let pipeline_layout = crate::shader::create_pipeline_layout(&device);
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("Compute Pipeline doubleMe (rewritten)"),
-        layout: Some(&pipeline_layout),
-        module: &module,
-        entry_point: Some(crate::shader::ENTRY_DOUBLEME),
-        compilation_options: Default::default(),
-        cache: Default::default(),
-    });
+    let pipeline = crate::shader::compute::create_doubleMe_pipeline(&device);
 
-    // Buffers (same as original logic)
-    let input_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("input"),
+    // Single storage buffer (shader does in-place modification); original sample had separate input/output.
+    let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("storage"),
         contents: bytemuck::cast_slice(&arguments),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("download"),
-        size: input_data_buffer.size(),
+        size: storage_buffer.size(),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
 
-
-    // We still must guarantee min_binding_size like original example. The auto layout doesn't set it, so if strict size needed we can keep a manual layout.
-    // For adherence to generated layout, proceed without explicit min_binding_size (wgpu validation allows None if shader uses it correctly).
-
-    // Create bind group using generated helper struct
+    // Bind group via generated helper (encapsulates layout creation)
     let bind_group0 = crate::shader::bind_groups::BindGroup0::from_bindings(
         &device,
         crate::shader::bind_groups::BindGroupLayout0 {
-            input: wgpu::BufferBinding {
-                buffer: &input_data_buffer,
-                offset: 0,
-                size: None,
-            },
+            input: storage_buffer.as_entire_buffer_binding(),
         },
     );
+    // let bind_group0 =
 
     // Command encoding
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -106,11 +91,11 @@ async fn main() {
 
     // Copy GPU output to download buffer
     encoder.copy_buffer_to_buffer(
-        &input_data_buffer,
+        &storage_buffer,
         0,
         &download_buffer,
         0,
-        input_data_buffer.size(),
+        storage_buffer.size(),
     );
     let command_buffer = encoder.finish();
     queue.submit([command_buffer]);

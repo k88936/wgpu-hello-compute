@@ -1,8 +1,12 @@
 // Input to the shader. The length of the array is determined by what buffer is bound.
 //
-// Out of bounds accesses 
+// Out of bounds accesses
+struct Pos{
+x: f32,
+y:f32,
+}
 @group(0) @binding(0)
-var<storage, read_write> input: array<f32>;
+var<storage, read_write> input: array<Pos>;
 // Output of the shader.  
 
 // Ideal workgroup size depends on the hardware, the workload, and other factors. However, it should
@@ -21,5 +25,6 @@ fn doubleMe(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Do the multiply by two and write to the output.
-    input[global_id.x] *= 2.0;
+//    input[global_id.x].y = input[global_id.y].x *2;
+    input[global_id.x].y = input[global_id.x].x *2;
 }

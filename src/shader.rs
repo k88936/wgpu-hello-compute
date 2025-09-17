@@ -125,3 +125,23 @@ pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
         push_constant_ranges: &[],
     })
 }
+#[repr(C)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable, encase :: ShaderType,
+)]
+pub struct Pos {
+    pub x: f32,
+    pub y: f32,
+}
+const _: () = assert!(
+    std::mem::size_of::<Pos>() == 8,
+    "size of Pos does not match WGSL"
+);
+const _: () = assert!(
+    std::mem::offset_of!(Pos, x) == 0,
+    "offset of Pos.x does not match WGSL"
+);
+const _: () = assert!(
+    std::mem::offset_of!(Pos, y) == 4,
+    "offset of Pos.y does not match WGSL"
+);
