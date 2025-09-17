@@ -4,7 +4,7 @@ use std::fmt::Write;
 use wgsl_to_wgpu::{create_shader_module, MatrixVectorTypes, WriteOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    for name in ["shader", "compute_shader"] {
+    for name in ["shader"] {
         // println!("cargo:rerun-if-changed=src/{name}.wgsl");
         let wgsl_file = format!("src/{name}.wgsl");
         let wgsl_source = std::fs::read_to_string(&wgsl_file)?;
