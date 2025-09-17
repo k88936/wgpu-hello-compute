@@ -60,13 +60,7 @@ async fn main() {
     let input_data_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("input"),
         contents: bytemuck::cast_slice(&arguments),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let output_data_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("output"),
-        size: input_data_buffer.size(),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
     });
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("download"),
@@ -75,8 +69,6 @@ async fn main() {
         mapped_at_creation: false,
     });
 
-    // Bind group layout now derived from generated shader (index 0 only)
-    let bind_group_layout = crate::shader::bind_groups::BindGroup0::get_bind_group_layout(&device);
 
     // We still must guarantee min_binding_size like original example. The auto layout doesn't set it, so if strict size needed we can keep a manual layout.
     // For adherence to generated layout, proceed without explicit min_binding_size (wgpu validation allows None if shader uses it correctly).
@@ -87,11 +79,6 @@ async fn main() {
         crate::shader::bind_groups::BindGroupLayout0 {
             input: wgpu::BufferBinding {
                 buffer: &input_data_buffer,
-                offset: 0,
-                size: None,
-            },
-            output: wgpu::BufferBinding {
-                buffer: &output_data_buffer,
                 offset: 0,
                 size: None,
             },
@@ -119,11 +106,11 @@ async fn main() {
 
     // Copy GPU output to download buffer
     encoder.copy_buffer_to_buffer(
-        &output_data_buffer,
+        &input_data_buffer,
         0,
         &download_buffer,
         0,
-        output_data_buffer.size(),
+        input_data_buffer.size(),
     );
     let command_buffer = encoder.finish();
     queue.submit([command_buffer]);

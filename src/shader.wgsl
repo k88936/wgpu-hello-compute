@@ -2,10 +2,8 @@
 //
 // Out of bounds accesses 
 @group(0) @binding(0)
-var<storage, read> input: array<f32>;
+var<storage, read_write> input: array<f32>;
 // Output of the shader.  
-@group(0) @binding(1)
-var<storage, read_write> output: array<f32>;
 
 // Ideal workgroup size depends on the hardware, the workload, and other factors. However, it should
 // _generally_ be a multiple of 64. Common sizes are 64x1x1, 256x1x1; or 8x8x1, 16x16x1 for 2D workloads.
@@ -23,5 +21,5 @@ fn doubleMe(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Do the multiply by two and write to the output.
-    output[global_id.x] = input[global_id.x] * 2.0;
+    input[global_id.x] *= 2.0;
 }
