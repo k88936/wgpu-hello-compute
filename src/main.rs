@@ -1,8 +1,8 @@
 mod sphere;
 
 use crate::sphere::OverrideConstants;
-use wgpu::BufferUsages;
 use wgpu::util::DeviceExt;
+use wgpu::BufferUsages;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -34,25 +34,26 @@ struct App {
 }
 
 impl App {
-
+    fn new() -> Self {
+        Self::default()
+    }
     fn update_uniforms(&self, size: winit::dpi::PhysicalSize<u32>, time: f32) {
-        if let (Some(queue), Some(uniforms_buffer)) = (
-            self.queue.as_ref(),
-            self.uniforms_buffer.as_ref(),
-        ) {
+        if let (Some(queue), Some(uniforms_buffer)) =
+            (self.queue.as_ref(), self.uniforms_buffer.as_ref())
+        {
             // Create perspective projection and view matrices
             let aspect = size.width as f32 / size.height as f32;
             // Use WebGPU-friendly depth range [0,1]
             let projection_matrix = glam::Mat4::perspective_rh(
                 std::f32::consts::FRAC_PI_4, // 45 degree FOV
                 aspect,
-                0.1,  // near plane
-                100.0 // far plane
+                0.1,   // near plane
+                100.0, // far plane
             );
 
             // Auto-rotate camera around the origin
             let radius = 2.0;
-            let time = time * 0.1;
+            let time = time * 0.3;
             let camera_x = radius * time.cos();
             let camera_z = radius * time.sin();
             let camera_position = glam::Vec3::new(camera_x, 0.0, camera_z);
@@ -77,12 +78,6 @@ impl App {
             // Update the uniforms buffer
             queue.write_buffer(uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
         }
-    }
-}
-
-impl App {
-    fn new() -> Self {
-        Self::default()
     }
 }
 
@@ -283,7 +278,6 @@ impl ApplicationHandler for App {
             });
             let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-
             self.pipeline = Some(pipeline);
             self.config = Some(config);
             self.queue = Some(queue);
@@ -362,8 +356,8 @@ impl ApplicationHandler for App {
                         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                         view_formats: &[],
                     });
-                    let depth_view = depth_texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    let depth_view =
+                        depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
                     self.depth_view = Some(depth_view);
                     self.depth_texture = Some(depth_texture);
                     // Update uniforms with new aspect ratio and rotation
@@ -461,7 +455,6 @@ impl ApplicationHandler for App {
                     // Draw all 1000 particles as quads (6 vertices per instance)
                     rpass.draw(0..6, 0..1000);
                 }
-
 
                 queue.submit(Some(encoder.finish()));
                 #[cfg(windows)]

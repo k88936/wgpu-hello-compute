@@ -11,6 +11,39 @@
 				"$rustc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "cargo run (wgsl-playground)",
+			"type": "shell",
+			"command": "cargo run",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "cargo run (wgsl-playground)",
+			"type": "shell",
+			"command": "cargo run",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "cargo run (wgsl-playground)",
+			"type": "shell",
+			"command": "cargo run",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
 		}
 	]
 }
