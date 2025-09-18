@@ -1,9 +1,8 @@
-mod shader;
+mod compute;
 
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::shader::Pos;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::PollType;
 
@@ -43,10 +42,17 @@ async fn main() {
 
     //region prepare
     // Use generated shader module + pipeline layout helpers
-    let pipeline = shader::compute::create_doubleMe_pipeline(&device);
+    let pipeline = compute::compute::create_doubleMe_pipeline(&device);
 
     // Single storage buffer (shader does in-place modification); original sample had separate input/output.
-    let arguments: Vec<Pos> = vec![Pos { x: 1.0, y: 2.0 }, Pos { x: 3.0, y: 4.0 }];
+    let arguments: Vec<compute::types::Cell> = vec![
+        compute::types::Cell{
+            vx: 1,
+            vy: 2,
+            vz: 3,
+            mass: 4,
+        }
+    ];
     let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("storage"),
         contents: bytemuck::cast_slice(&arguments),
@@ -60,9 +66,9 @@ async fn main() {
     });
 
     // Bind group via generated helper (encapsulates layout creation)
-    let bind_group0 = shader::bind_groups::BindGroup0::from_bindings(
+    let bind_group0 = compute::bind_groups::BindGroup0::from_bindings(
         &device,
-        shader::bind_groups::BindGroupLayout0 {
+        compute::bind_groups::BindGroupLayout0 {
             input: storage_buffer.as_entire_buffer_binding(),
         },
     );
@@ -80,10 +86,10 @@ async fn main() {
         });
         compute_pass.set_pipeline(&pipeline);
         // Using helper to set bind group(s)
-        shader::set_bind_groups(&mut compute_pass, &bind_group0);
+        compute::set_bind_groups(&mut compute_pass, &bind_group0);
 
         // Workgroup sizing same as original logic
-        let workgroup_size = shader::compute::DOUBLEME_WORKGROUP_SIZE[0] as usize; // 64
+        let workgroup_size = compute::compute::DOUBLEME_WORKGROUP_SIZE[0] as usize; // 64
         let workgroup_count = arguments.len().div_ceil(workgroup_size);
         compute_pass.dispatch_workgroups(workgroup_count as u32, 1, 1);
     }

@@ -1,17 +1,36 @@
 extern crate wgsl_to_wgpu;
 
 use std::fmt::Write;
+use wesl::{Mangler, Wesl};
 use wgsl_to_wgpu::{create_shader_modules, MatrixVectorTypes, WriteOptions};
+fn demangle_wesl(name: &str) -> wgsl_to_wgpu::TypePath {
+    // Assume all paths are absolute paths.
+    if name.starts_with("package_") {
+        // Use the root module if unmangle fails.
+        let mangler = wesl::EscapeMangler;
+        let (path, name) = mangler
+            .unmangle(name).unwrap();
 
-fn generate_wgsl_source_string() -> String {
-    String::new()
-}
-fn demangle(name: &str) -> wgsl_to_wgpu::TypePath {
-    wgsl_to_wgpu::demangle_identity(name)
+        // Assume all wesl paths are absolute paths.
+        wgsl_to_wgpu::TypePath {
+            parent: wgsl_to_wgpu::ModulePath {
+                components: path.components,
+            },
+            name,
+        }
+    } else {
+        // Use the root module if the name is not mangled.
+        wgsl_to_wgpu::TypePath {
+            parent: wgsl_to_wgpu::ModulePath::default(),
+            name: name.to_string(),
+        }
+    }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     const SHADER_BASE: &str = "shaders";
     const BINDING_BASE: &str = "src";
+
+    let compiler = Wesl::new(SHADER_BASE);
 
     // Read all .wgsl files from the shader directory
     for entry in std::fs::read_dir(SHADER_BASE)? {
@@ -20,7 +39,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if path.extension() == Some("wgsl".as_ref()) {
             let name = path.file_stem().unwrap().to_str().unwrap();
-            let wgsl_source = std::fs::read_to_string(&path)?;
+
+            // let wgsl_source = std::fs::read_to_string(&path)?;
+            let wgsl_source = compiler.compile(&format!("package::{name}").parse().unwrap()).inspect_err(|e| eprintln!("WESL error: {e}")) // pretty errors with `display()`
+                .unwrap()
+                .to_string();
 
             // Generate the Rust bindings and write to a file.
             let mut text = String::new();
@@ -39,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     validate: Some(Default::default()),
                     ..Default::default()
                 },
-                demangle,
+                demangle_wesl,
             )
             .inspect_err(|error| error.emit_to_stderr_with_path(&wgsl_source, &path))
             .map_err(|_| "Failed to validate shader")?;

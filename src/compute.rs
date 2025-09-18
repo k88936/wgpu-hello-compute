@@ -110,7 +110,7 @@ pub mod compute {
     }
 }
 pub const ENTRY_DOUBLEME: &str = "doubleMe";
-pub const SOURCE : & str = "// Input to the shader. The length of the array is determined by what buffer is bound.\n//\n// Out of bounds accesses\nstruct Pos{\nx: f32,\ny:f32,\n}\n@group(0) @binding(0)\nvar<storage, read_write> input: array<Pos>;\n// Output of the shader.  \n\n// Ideal workgroup size depends on the hardware, the workload, and other factors. However, it should\n// _generally_ be a multiple of 64. Common sizes are 64x1x1, 256x1x1; or 8x8x1, 16x16x1 for 2D workloads.\n@compute @workgroup_size(64)\nfn doubleMe(@builtin(global_invocation_id) global_id: vec3<u32>) {\n    // While compute invocations are 3d, we're only using one dimension.\n    let index = global_id.x;\n\n    // Because we're using a workgroup size of 64, if the input size isn't a multiple of 64,\n    // we will have some \"extra\" invocations. This is fine, but we should tell them to stop\n    // to avoid out-of-bounds accesses.\n    let array_length = arrayLength(&input);\n    if (global_id.x >= array_length) {\n        return;\n    }\n\n    // Do the multiply by two and write to the output.\n//    input[global_id.x].y = input[global_id.y].x *2;\n    input[global_id.x].y = input[global_id.x].x *2;\n}\n" ;
+pub const SOURCE : & str = "@group(0) @binding(0)\nvar<storage, read_write> input: array<package_types_Cell>;\n\n@compute @workgroup_size(64)\nfn doubleMe(@builtin(global_invocation_id) global_id: vec3<u32>) {\n    let index = global_id.x;\n    let array_length = arrayLength(&input);\n    if (global_id.x >= array_length) {\n        return;\n    }\n    input[global_id.x].vy = input[global_id.x].vx * 2;\n}\n\nstruct package_types_Cell {\n    vx: i32,\n    vy: i32,\n    vz: i32,\n    mass: i32\n}\n" ;
 pub fn create_shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
     let source = std::borrow::Cow::Borrowed(SOURCE);
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -125,23 +125,35 @@ pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
         push_constant_ranges: &[],
     })
 }
-#[repr(C)]
-#[derive(
-    Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable, encase :: ShaderType,
-)]
-pub struct Pos {
-    pub x: f32,
-    pub y: f32,
+pub mod types {
+    #[repr(C)]
+    #[derive(
+        Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable, encase :: ShaderType,
+    )]
+    pub struct Cell {
+        pub vx: i32,
+        pub vy: i32,
+        pub vz: i32,
+        pub mass: i32,
+    }
+    const _: () = assert!(
+        std::mem::size_of::<Cell>() == 16,
+        "size of Cell does not match WGSL"
+    );
+    const _: () = assert!(
+        std::mem::offset_of!(Cell, vx) == 0,
+        "offset of Cell.vx does not match WGSL"
+    );
+    const _: () = assert!(
+        std::mem::offset_of!(Cell, vy) == 4,
+        "offset of Cell.vy does not match WGSL"
+    );
+    const _: () = assert!(
+        std::mem::offset_of!(Cell, vz) == 8,
+        "offset of Cell.vz does not match WGSL"
+    );
+    const _: () = assert!(
+        std::mem::offset_of!(Cell, mass) == 12,
+        "offset of Cell.mass does not match WGSL"
+    );
 }
-const _: () = assert!(
-    std::mem::size_of::<Pos>() == 8,
-    "size of Pos does not match WGSL"
-);
-const _: () = assert!(
-    std::mem::offset_of!(Pos, x) == 0,
-    "offset of Pos.x does not match WGSL"
-);
-const _: () = assert!(
-    std::mem::offset_of!(Pos, y) == 4,
-    "offset of Pos.y does not match WGSL"
-);

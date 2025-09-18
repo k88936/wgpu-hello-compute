@@ -17,4 +17,5 @@ pollster = "0.3"
 tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"] }
 
 [build-dependencies]
+wesl = "0.2.0"
 wgsl_to_wgpu = "0.15.2"
