@@ -28,19 +28,22 @@ struct App {
     aux_rt_texture: Option<wgpu::Texture>,
     aux_rt_view: Option<wgpu::TextureView>,
     start_time: Option<std::time::Instant>,
+    // Depth buffer
+    depth_texture: Option<wgpu::Texture>,
+    depth_view: Option<wgpu::TextureView>,
 }
 
 impl App {
 
     fn update_uniforms(&self, size: winit::dpi::PhysicalSize<u32>, time: f32) {
-        if let (Some(device), Some(queue), Some(uniforms_buffer)) = (
-            self.device.as_ref(),
+        if let (Some(queue), Some(uniforms_buffer)) = (
             self.queue.as_ref(),
             self.uniforms_buffer.as_ref(),
         ) {
             // Create perspective projection and view matrices
             let aspect = size.width as f32 / size.height as f32;
-            let projection_matrix = glam::Mat4::perspective_rh_gl(
+            // Use WebGPU-friendly depth range [0,1]
+            let projection_matrix = glam::Mat4::perspective_rh(
                 std::f32::consts::FRAC_PI_4, // 45 degree FOV
                 aspect,
                 0.1,  // near plane
@@ -227,7 +230,13 @@ impl ApplicationHandler for App {
                 vertex: sphere::vertex_state(&shader, &vs),
                 fragment: Some(sphere::fragment_state(&shader, &fs)),
                 primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
@@ -257,6 +266,23 @@ impl ApplicationHandler for App {
             });
             let aux_rt_view = aux_rt_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+            // Create depth texture
+            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("depth-texture"),
+                size: wgpu::Extent3d {
+                    width: config.width.max(1),
+                    height: config.height.max(1),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
 
             self.pipeline = Some(pipeline);
             self.config = Some(config);
@@ -272,6 +298,8 @@ impl ApplicationHandler for App {
             self.stretch_buffer = Some(stretch_buffer);
             self.aux_rt_view = Some(aux_rt_view);
             self.aux_rt_texture = Some(aux_rt_texture);
+            self.depth_view = Some(depth_view);
+            self.depth_texture = Some(depth_texture);
         }
 
         // Kick off first frame
@@ -319,6 +347,25 @@ impl ApplicationHandler for App {
                         aux_rt_texture.create_view(&wgpu::TextureViewDescriptor::default());
                     self.aux_rt_view = Some(aux_rt_view);
                     self.aux_rt_texture = Some(aux_rt_texture);
+                    // Recreate depth texture to match new size
+                    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("depth-texture"),
+                        size: wgpu::Extent3d {
+                            width: config.width.max(1),
+                            height: config.height.max(1),
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Depth32Float,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    });
+                    let depth_view = depth_texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    self.depth_view = Some(depth_view);
+                    self.depth_texture = Some(depth_texture);
                     // Update uniforms with new aspect ratio and rotation
                     if let Some(start_time) = self.start_time {
                         let elapsed = start_time.elapsed().as_secs_f32();
@@ -338,16 +385,17 @@ impl ApplicationHandler for App {
                 }
 
                 // Early return if we don't have all required components
-                let (surface, device, queue, pipeline, bind_group, aux_rt_view) = match (
+                let (surface, device, queue, pipeline, bind_group, aux_rt_view, depth_view) = match (
                     self.surface.as_ref(),
                     self.device.as_ref(),
                     self.queue.as_ref(),
                     self.pipeline.as_ref(),
                     self.bind_group.as_ref(),
                     self.aux_rt_view.as_ref(),
+                    self.depth_view.as_ref(),
                 ) {
-                    (Some(s), Some(d), Some(q), Some(p), Some(bg), Some(av)) => {
-                        (s, d, q, p, bg, av)
+                    (Some(s), Some(d), Some(q), Some(p), Some(bg), Some(av), Some(dv)) => {
+                        (s, d, q, p, bg, av, dv)
                     }
                     _ => return,
                 };
@@ -396,7 +444,14 @@ impl ApplicationHandler for App {
                                 },
                             }),
                         ],
-                        depth_stencil_attachment: None,
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
