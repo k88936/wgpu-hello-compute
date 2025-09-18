@@ -1,126 +1,436 @@
-#[allow(dead_code)]
-mod compute;
-#[allow(dead_code)]
-mod hello_triangle;
-mod render;
+mod sphere;
 
+use crate::sphere::OverrideConstants;
+use wgpu::BufferUsages;
 use wgpu::util::DeviceExt;
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowAttributes},
+};
+
+#[derive(Default)]
+struct App {
+    window: Option<&'static Window>,
+    surface: Option<wgpu::Surface<'static>>,
+    adapter: Option<wgpu::Adapter>,
+    device: Option<wgpu::Device>,
+    queue: Option<wgpu::Queue>,
+    config: Option<wgpu::SurfaceConfiguration>,
+    pipeline: Option<wgpu::RenderPipeline>,
+    // GPU resources that must outlive passes
+    bind_group: Option<sphere::bind_groups::BindGroup0>,
+    particles_buffer: Option<wgpu::Buffer>,
+    uniforms_buffer: Option<wgpu::Buffer>,
+    stretch_buffer: Option<wgpu::Buffer>,
+    // Second color attachment (for depth-as-color output)
+    aux_rt_texture: Option<wgpu::Texture>,
+    aux_rt_view: Option<wgpu::TextureView>,
+    start_time: Option<std::time::Instant>,
+}
+
+impl App {
+
+    fn update_uniforms(&self, size: winit::dpi::PhysicalSize<u32>, time: f32) {
+        if let (Some(device), Some(queue), Some(uniforms_buffer)) = (
+            self.device.as_ref(),
+            self.queue.as_ref(),
+            self.uniforms_buffer.as_ref(),
+        ) {
+            // Create perspective projection and view matrices
+            let aspect = size.width as f32 / size.height as f32;
+            let projection_matrix = glam::Mat4::perspective_rh_gl(
+                std::f32::consts::FRAC_PI_4, // 45 degree FOV
+                aspect,
+                0.1,  // near plane
+                100.0 // far plane
+            );
+
+            // Auto-rotate camera around the origin
+            let radius = 2.0;
+            let time = time * 0.1;
+            let camera_x = radius * time.cos();
+            let camera_z = radius * time.sin();
+            let camera_position = glam::Vec3::new(camera_x, 0.0, camera_z);
+
+            let view_matrix = glam::Mat4::look_at_rh(
+                camera_position,                // camera position (rotating)
+                glam::Vec3::new(0.0, 0.0, 0.0), // always look at origin
+                glam::Vec3::Y,                  // up vector
+            );
+
+            // Create uniform buffer for render uniforms
+            let uniforms = sphere::RenderUniforms {
+                inv_projection_matrix: projection_matrix.inverse(),
+                projection_matrix,
+                view_matrix,
+                inv_view_matrix: view_matrix.inverse(),
+                texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
+                sphere_size: 0.05,
+                _pad: 0,
+            };
+
+            // Update the uniforms buffer
+            queue.write_buffer(uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
+        }
+    }
+}
+
+impl App {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Create a window if we don't have one yet (mobile may resume multiple times)
+        if self.window.is_none() {
+            let window = event_loop
+                .create_window(WindowAttributes::default())
+                .expect("failed to create window");
+            let window: &'static Window = Box::leak(Box::new(window));
+            let size = window.inner_size();
+
+            // WGPU setup
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+            let surface = instance.create_surface(window).expect("create surface");
+
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::default(),
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(&surface),
+                }))
+                .expect("Failed to find an appropriate adapter");
+
+            let required_features = wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY;
+            let required_limits = wgpu::Limits::default();
+
+            let (device, queue) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features,
+                    required_limits,
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                    trace: wgpu::Trace::Off,
+                }))
+                .expect("Failed to create device");
+
+            let points: Vec<sphere::types::PosVel> = {
+                let mut particles = Vec::with_capacity(1000);
+                for x in 0..10 {
+                    for y in 0..10 {
+                        for z in 0..10 {
+                            particles.push(sphere::types::PosVel {
+                                position: glam::Vec3::new(
+                                    (x as f32 - 4.5) * 0.1,
+                                    (y as f32 - 4.5) * 0.1,
+                                    (z as f32 - 4.5) * 0.1,
+                                ),
+                                v: glam::Vec3::new(0.0, 0.0, 0.0),
+                                density: 1.0,
+                                _pad: 0,
+                            });
+                        }
+                    }
+                }
+                particles
+            };
+            let particles_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("particles"),
+                size: (points.len() * std::mem::size_of::<sphere::types::PosVel>()) as u64,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: true,
+            });
+            particles_buffer
+                .slice(..)
+                .get_mapped_range_mut()
+                .copy_from_slice(bytemuck::cast_slice(&points));
+            particles_buffer.unmap();
+
+            // Create initial uniform buffer with placeholder data
+            let uniforms = sphere::RenderUniforms {
+                inv_projection_matrix: glam::Mat4::IDENTITY,
+                projection_matrix: glam::Mat4::IDENTITY,
+                view_matrix: glam::Mat4::IDENTITY,
+                inv_view_matrix: glam::Mat4::IDENTITY,
+                texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
+                sphere_size: 0.05,
+                _pad: 0,
+            };
+            let uniforms_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("uniforms"),
+                contents: bytemuck::bytes_of(&uniforms),
+                usage: wgpu::BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            });
+
+            // Initialize start time
+            self.start_time = Some(std::time::Instant::now());
+
+            // Update uniforms with proper perspective matrices
+            if let Some(start_time) = self.start_time {
+                let elapsed = start_time.elapsed().as_secs_f32();
+                self.update_uniforms(size, elapsed);
+            }
+
+            // Create stretch strength uniform buffer
+            let stretch_strength = 0.5f32;
+            let stretch_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("stretch-strength"),
+                contents: bytemuck::bytes_of(&stretch_strength),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+            // Create bind group using the generated helper
+            let bind_group = sphere::bind_groups::BindGroup0::from_bindings(
+                &device,
+                sphere::bind_groups::BindGroupLayout0 {
+                    particles: particles_buffer.as_entire_buffer_binding(),
+                    uniforms: uniforms_buffer.as_entire_buffer_binding(),
+                    stretchStrength: stretch_buffer.as_entire_buffer_binding(),
+                },
+            );
+
+            // Use generated hello_triangle helpers
+            let shader = sphere::create_shader_module(&device);
+            let pipeline_layout = sphere::create_pipeline_layout(&device);
+
+            let caps = surface.get_capabilities(&adapter);
+            let format = caps.formats[0];
+
+            let overrides = &OverrideConstants {
+                restDensity: 1.0,
+                densitySizeScale: 1.0,
+            };
+            let vs = sphere::vs_entry(overrides);
+            let fs = sphere::fs_entry(
+                [
+                    Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float, // Blendable format for depth buffer
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+                overrides,
+            );
+
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("sphere-pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: sphere::vertex_state(&shader, &vs),
+                fragment: Some(sphere::fragment_state(&shader, &fs)),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+            let config = surface
+                .get_default_config(&adapter, size.width.max(1), size.height.max(1))
+                .expect("surface config");
+            surface.configure(&device, &config);
+
+            // Create auxiliary render target for second color attachment (Rgba16Float)
+            let aux_rt_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("aux-rt-texture"),
+                size: wgpu::Extent3d {
+                    width: config.width.max(1),
+                    height: config.height.max(1),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let aux_rt_view = aux_rt_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+
+            self.pipeline = Some(pipeline);
+            self.config = Some(config);
+            self.queue = Some(queue);
+            self.device = Some(device);
+            self.adapter = Some(adapter);
+            self.surface = Some(surface);
+            self.window = Some(window);
+            // Persist resources
+            self.bind_group = Some(bind_group);
+            self.particles_buffer = Some(particles_buffer);
+            self.uniforms_buffer = Some(uniforms_buffer);
+            self.stretch_buffer = Some(stretch_buffer);
+            self.aux_rt_view = Some(aux_rt_view);
+            self.aux_rt_texture = Some(aux_rt_texture);
+        }
+
+        // Kick off first frame
+        if let Some(w) = self.window {
+            w.request_redraw()
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(new_size) => {
+                if let (Some(surface), Some(device), Some(config), Some(window)) = (
+                    self.surface.as_ref(),
+                    self.device.as_ref(),
+                    self.config.as_mut(),
+                    self.window.as_ref(),
+                ) {
+                    config.width = new_size.width.max(1);
+                    config.height = new_size.height.max(1);
+                    surface.configure(device, config);
+                    // Recreate auxiliary render target to match new size
+                    let aux_rt_texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("aux-rt-texture"),
+                        size: wgpu::Extent3d {
+                            width: config.width.max(1),
+                            height: config.height.max(1),
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    let aux_rt_view =
+                        aux_rt_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    self.aux_rt_view = Some(aux_rt_view);
+                    self.aux_rt_texture = Some(aux_rt_texture);
+                    // Update uniforms with new aspect ratio and rotation
+                    if let Some(start_time) = self.start_time {
+                        let elapsed = start_time.elapsed().as_secs_f32();
+                        self.update_uniforms(new_size, elapsed);
+                    }
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                // Update uniforms with rotation
+                if let (Some(config), Some(start_time)) = (self.config.as_ref(), self.start_time) {
+                    let elapsed = start_time.elapsed().as_secs_f32();
+                    self.update_uniforms(
+                        winit::dpi::PhysicalSize::new(config.width, config.height),
+                        elapsed,
+                    );
+                }
+
+                // Early return if we don't have all required components
+                let (surface, device, queue, pipeline, bind_group, aux_rt_view) = match (
+                    self.surface.as_ref(),
+                    self.device.as_ref(),
+                    self.queue.as_ref(),
+                    self.pipeline.as_ref(),
+                    self.bind_group.as_ref(),
+                    self.aux_rt_view.as_ref(),
+                ) {
+                    (Some(s), Some(d), Some(q), Some(p), Some(bg), Some(av)) => {
+                        (s, d, q, p, bg, av)
+                    }
+                    _ => return,
+                };
+
+                let frame = match surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
+                        // On Outdated/Lost errors, reconfigure and skip frame
+                        if let (Some(device), Some(config)) =
+                            (self.device.as_ref(), self.config.as_ref())
+                        {
+                            surface.configure(device, config);
+                        }
+                        return;
+                    }
+                    Err(_) => return,
+                };
+
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("render-encoder"),
+                });
+
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("rpass"),
+                        color_attachments: &[
+                            Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            }),
+                            Some(wgpu::RenderPassColorAttachment {
+                                view: aux_rt_view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            }),
+                        ],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    rpass.set_pipeline(pipeline);
+                    // Set required bind group(s)
+                    sphere::set_bind_groups(&mut rpass, bind_group);
+                    // Draw all 1000 particles as quads (6 vertices per instance)
+                    rpass.draw(0..6, 0..1000);
+                }
+
+
+                queue.submit(Some(encoder.finish()));
+                #[cfg(windows)]
+                if let Some(w) = self.window {
+                    w.pre_present_notify()
+                }
+                frame.present();
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Continuously redraw
+        if let Some(w) = self.window {
+            w.request_redraw()
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    render::main();
-    // //region System
-    // // Initialize logger (env_logger like original)
-    // env_logger::init();
-    //
-    // // Instance
-    // let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    //
-    // // Adapter
-    // let adapter =
-    //     pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    //         .expect("Failed to create adapter");
-    // println!("Running on Adapter: {:#?}", adapter.get_info());
-    //
-    // let downlevel_capabilities = adapter.get_downlevel_capabilities();
-    // if !downlevel_capabilities
-    //     .flags
-    //     .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
-    // {
-    //     panic!("Adapter does not support compute shaders");
-    // }
-    //
-    // // Device + Queue (mirroring original required limits/features)
-    // let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-    //     label: None,
-    //     required_features: wgpu::Features::empty(),
-    //     required_limits: wgpu::Limits::downlevel_defaults(),
-    //     memory_hints: wgpu::MemoryHints::MemoryUsage,
-    //     trace: wgpu::Trace::Off,
-    // }))
-    // .expect("Failed to create device");
-    // //endregion
-    //
-    // //region prepare
-    // // Use generated shader module + pipeline layout helpers
-    // let pipeline = compute::compute::create_doubleMe_pipeline(&device);
-    //
-    // // Single storage buffer (shader does in-place modification); original sample had separate input/output.
-    // let arguments: Vec<compute::types::Cell> = vec![
-    //     compute::types::Cell{
-    //         vx: 1,
-    //         vy: 2,
-    //         vz: 3,
-    //         mass: 4,
-    //     }
-    // ];
-    // let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-    //     label: Some("storage"),
-    //     contents: bytemuck::cast_slice(&arguments),
-    //     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    // });
-    // let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-    //     label: Some("download"),
-    //     size: storage_buffer.size(),
-    //     usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-    //     mapped_at_creation: false,
-    // });
-    //
-    // // Bind group via generated helper (encapsulates layout creation)
-    // let bind_group0 = compute::bind_groups::BindGroup0::from_bindings(
-    //     &device,
-    //     compute::bind_groups::BindGroupLayout0 {
-    //         input: storage_buffer.as_entire_buffer_binding(),
-    //     },
-    // );
-    // //endregion
-    //
-    // //region compute
-    // // Command encoding
-    // let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-    //     label: Some("encoder"),
-    // });
-    // {
-    //     let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-    //         label: Some("compute_pass"),
-    //         timestamp_writes: None,
-    //     });
-    //     compute_pass.set_pipeline(&pipeline);
-    //     // Using helper to set bind group(s)
-    //     compute::set_bind_groups(&mut compute_pass, &bind_group0);
-    //
-    //     // Workgroup sizing same as original logic
-    //     let workgroup_size = compute::compute::DOUBLEME_WORKGROUP_SIZE[0] as usize; // 64
-    //     let workgroup_count = arguments.len().div_ceil(workgroup_size);
-    //     compute_pass.dispatch_workgroups(workgroup_count as u32, 1, 1);
-    // }
-    //
-    // // Copy GPU output to download buffer
-    // encoder.copy_buffer_to_buffer(
-    //     &storage_buffer,
-    //     0,
-    //     &download_buffer,
-    //     0,
-    //     storage_buffer.size(),
-    // );
-    // let command_buffer = encoder.finish();
-    // queue.submit([command_buffer]);
-    //
-    // // Map for reading (async like original)
-    // let buffer_slice = download_buffer.slice(..);
-    // let notify = Arc::new(Notify::new());
-    // let notify_clone = notify.clone();
-    // buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-    //     if let Err(e) = result {
-    //         eprintln!("Failed to map buffer: {:?}", e);
-    //     }
-    //     notify_clone.notify_one();
-    // });
-    // device.poll(PollType::Wait).unwrap();
-    // notify.notified().await;
-    //
-    // let data = buffer_slice.get_mapped_range();
-    // let result: &[f32] = bytemuck::cast_slice(&data);
-    // println!("Result: {:?}", result);
-    // //endregion
+    env_logger::init();
+    let event_loop = EventLoop::new().expect("event loop");
+    let mut app = App::new();
+    event_loop.run_app(&mut app).expect("run app");
 }

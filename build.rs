@@ -2,14 +2,13 @@ extern crate wgsl_to_wgpu;
 
 use std::fmt::Write;
 use wesl::{Mangler, Wesl};
-use wgsl_to_wgpu::{create_shader_modules, MatrixVectorTypes, WriteOptions};
+use wgsl_to_wgpu::{MatrixVectorTypes, WriteOptions, create_shader_modules};
 fn demangle_wesl(name: &str) -> wgsl_to_wgpu::TypePath {
     // Assume all paths are absolute paths.
     if name.starts_with("package_") {
         // Use the root module if unmangle fails.
         let mangler = wesl::EscapeMangler;
-        let (path, name) = mangler
-            .unmangle(name).unwrap();
+        let (path, name) = mangler.unmangle(name).unwrap();
 
         // Assume all wesl paths are absolute paths.
         wgsl_to_wgpu::TypePath {
@@ -41,7 +40,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let name = path.file_stem().unwrap().to_str().unwrap();
 
             // let wgsl_source = std::fs::read_to_string(&path)?;
-            let wgsl_source = compiler.compile(&format!("package::{name}").parse().unwrap()).inspect_err(|e| eprintln!("WESL error: {e}")) // pretty errors with `display()`
+            let wgsl_source = compiler
+                .compile(&format!("package::{name}").parse().unwrap())
+                .inspect_err(|e| eprintln!("WESL error: {e}")) // pretty errors with `display()`
                 .unwrap()
                 .to_string();
 

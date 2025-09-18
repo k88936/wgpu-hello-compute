@@ -10,3 +10,10 @@ struct Cell {
     mass: i32,
 }
 
+struct PosVel {
+    position: vec3f,
+    density: f32,
+    v: vec3f,
+    _pad: u32
+
+}
