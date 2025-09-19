@@ -55,8 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &wgsl_source,
                 // &path.to_str().unwrap(),
                 WriteOptions {
-                    derive_bytemuck_vertex: true,
-                    derive_bytemuck_host_shareable: true,
+                    // derive_bytemuck_vertex: true,
+                    // derive_bytemuck_host_shareable: true,
                     derive_encase_host_shareable: true,
                     matrix_vector_types: MatrixVectorTypes::Glam,
                     rustfmt: true,

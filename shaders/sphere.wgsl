@@ -26,7 +26,6 @@ struct RenderUniforms {
     inv_view_matrix: mat4x4f, 
     texel_size: vec2f,
     sphere_size: f32,
-    _pad: u32
 }
 
 
