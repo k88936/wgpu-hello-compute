@@ -53,7 +53,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             text += &create_shader_modules(
                 &wgsl_source,
-                // &path.to_str().unwrap(),
                 WriteOptions {
                     // derive_bytemuck_vertex: true,
                     // derive_bytemuck_host_shareable: true,

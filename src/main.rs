@@ -1,6 +1,15 @@
 mod sphere;
+mod updateGrid;
+mod spawnParticles;
+mod p2g_1;
+mod p2g_2;
+mod g2p;
+mod copyPosition;
+mod clearGrid;
+mod solver;
 
 use crate::sphere::OverrideConstants;
+use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
 use wgpu::BufferUsages;
 use winit::{
@@ -72,11 +81,12 @@ impl App {
                 inv_view_matrix: view_matrix.inverse(),
                 texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
                 sphere_size: 0.05,
-                _pad: 0,
             };
 
-            // Update the uniforms buffer
-            queue.write_buffer(uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
+            // Update the uniforms buffer using encase
+            let mut ubuf = UniformBuffer::new(Vec::new());
+            ubuf.write(&uniforms).expect("serialize updated uniforms");
+            queue.write_buffer(uniforms_buffer, 0, ubuf.as_ref());
         }
     }
 }
@@ -129,24 +139,24 @@ impl ApplicationHandler for App {
                                 ),
                                 v: glam::Vec3::new(0.0, 0.0, 0.0),
                                 density: 1.0,
-                                _pad: 0,
                             });
                         }
                     }
                 }
                 particles
             };
-            let particles_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            // Serialize particle data using a single slice write so encase applies the correct stride (48 bytes per PosVel)
+            // Writing elements one-by-one can result in a tightly packed 32-byte layout (Rust repr(C)) instead of the WGSL std430 stride (48),
+            // causing all but the first particle to appear with zero size. A single slice write preserves proper padding per element.
+            let mut particle_storage = StorageBuffer::new(Vec::new());
+            particle_storage
+                .write(&points[..])
+                .expect("serialize particles slice");
+            let particles_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("particles"),
-                size: (points.len() * std::mem::size_of::<sphere::types::PosVel>()) as u64,
+                contents: particle_storage.as_ref(),
                 usage: wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: true,
             });
-            particles_buffer
-                .slice(..)
-                .get_mapped_range_mut()
-                .copy_from_slice(bytemuck::cast_slice(&points));
-            particles_buffer.unmap();
 
             // Create initial uniform buffer with placeholder data
             let uniforms = sphere::RenderUniforms {
@@ -156,11 +166,13 @@ impl ApplicationHandler for App {
                 inv_view_matrix: glam::Mat4::IDENTITY,
                 texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
                 sphere_size: 0.05,
-                _pad: 0,
             };
+            // Use encase to create initial uniform buffer contents
+            let mut ubuf = UniformBuffer::new(Vec::new());
+            ubuf.write(&uniforms).expect("serialize uniforms");
             let uniforms_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("uniforms"),
-                contents: bytemuck::bytes_of(&uniforms),
+                contents: ubuf.as_ref(),
                 usage: wgpu::BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             });
 
@@ -175,9 +187,12 @@ impl ApplicationHandler for App {
 
             // Create stretch strength uniform buffer
             let stretch_strength = 0.5f32;
+            // Single f32 uniform (stretch strength) serialized via encase UniformBuffer for consistency
+            let mut stretch_encase = UniformBuffer::new(Vec::new());
+            stretch_encase.write(&stretch_strength).expect("serialize stretch strength");
             let stretch_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("stretch-strength"),
-                contents: bytemuck::bytes_of(&stretch_strength),
+                contents: stretch_encase.as_ref(),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
