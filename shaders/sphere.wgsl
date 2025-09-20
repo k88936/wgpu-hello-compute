@@ -35,7 +35,7 @@ struct RenderUniforms {
 @group(0) @binding(2) var<uniform> stretchStrength: f32;
 
 // Replaced overrides with compile-time constants
-const restDensity: f32 = 4.0;
+const restDensity: f32 = 0.2;
 const densitySizeScale: f32 = 1.0;
 
 // assuming center is origin
@@ -77,6 +77,8 @@ fn vs(
     );
 
     let size = uniforms.sphere_size * clamp(particles[instance_index].density / restDensity * densitySizeScale, 0.0, 1.0);
+//    let size =uniforms.sphere_size;
+//    let size =0.01;
     let projected_velocity = (uniforms.view_matrix * vec4f(particles[instance_index].v, 0.0)).xy;
     let stretched_position = computeStretchedVertex(corner_positions[vertex_index] * size, projected_velocity, stretchStrength);
     let corner = vec3(stretched_position, 0.0) * scaleQuad(projected_velocity, size, stretchStrength);

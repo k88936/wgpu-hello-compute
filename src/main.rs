@@ -61,13 +61,13 @@ impl App {
                 std::f32::consts::FRAC_PI_4, // 45 degree FOV
                 aspect,
                 0.1,   // near plane
-                100.0, // far plane
+                200.0, // far plane
             );
 
             // Auto-rotate camera around TS medium box (0..60) with center (30,30,30)
             let box_center = glam::Vec3::new(30.0, 30.0, 30.0);
             // Distance ~ init distance param mlsmpmInitDistances[1] = 70
-            let radius = 70.0;
+            let radius = 150.0;
             let angular_time = time * 0.05;
             let camera_x = box_center.x + radius * angular_time.cos();
             let camera_z = box_center.z + radius * angular_time.sin();
@@ -88,7 +88,7 @@ impl App {
                 view_matrix,
                 inv_view_matrix: view_matrix.inverse(),
                 texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
-                sphere_size: 1.0,
+                sphere_size: 2.0,
             };
 
             // Update the uniforms buffer using encase

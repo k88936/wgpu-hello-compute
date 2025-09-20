@@ -3,9 +3,11 @@ import package::types::Particle;
 
 // Replaced overrides with compile-time constants
 const fixed_point_multiplier: f32 = 10000000.0; // 1e7
-const stiffness: f32 = 3.0;
-const rest_density: f32 = 4.0;
-const dynamic_viscosity: f32 = 0.1;
+const stiffness: f32 = 0.2;
+//const rest_density: f32 = 4.0;
+const rest_density: f32 = 0.2;
+//const dynamic_viscosity: f32 = 0.1;
+const dynamic_viscosity: f32 = 0.12;
 const dt: f32 = 0.20;
 
 fn encodeFixedPoint(floating_point: f32) -> i32 {
