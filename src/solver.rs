@@ -245,7 +245,7 @@ impl MLSMPMSolver {
 	pub fn execute(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, target_num_particles: u32) {
 		for substep in 0..2 { // two substeps per frame
 			// Spawn new particles at most once per frame at beginning of first substep (TS does before loop; keep parity)
-			if substep == 0 && self.frame_count % 2 == 0 && self.num_particles < target_num_particles {
+			if substep == 0 && self.frame_count % 5 == 0 && self.num_particles < target_num_particles {
 				let spawn_batch = 100.min(target_num_particles - self.num_particles);
 				self.num_particles += spawn_batch;
 				self.write_num_particles(queue);

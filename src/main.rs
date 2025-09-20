@@ -8,7 +8,7 @@ mod copyPosition;
 mod clearGrid;
 mod solver;
 
-const TARGET_NUM_PARTICLES: u32 = 600_000; // TS medium parameter set (mlsmpmNumParticleParams[1])
+const TARGET_NUM_PARTICLES: u32 = 1_000_000; // TS medium parameter set (mlsmpmNumParticleParams[1])
 
 use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
@@ -88,7 +88,7 @@ impl App {
                 view_matrix,
                 inv_view_matrix: view_matrix.inverse(),
                 texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
-                sphere_size: 0.05,
+                sphere_size: 1.0,
             };
 
             // Update the uniforms buffer using encase
@@ -179,7 +179,7 @@ impl ApplicationHandler for App {
                 view_matrix: glam::Mat4::IDENTITY,
                 inv_view_matrix: glam::Mat4::IDENTITY,
                 texel_size: glam::Vec2::new(1.0 / size.width as f32, 1.0 / size.height as f32),
-                sphere_size: 0.05,
+                sphere_size: 1.0,
             };
             // Use encase to create initial uniform buffer contents
             let mut ubuf = UniformBuffer::new(Vec::new());
@@ -200,7 +200,7 @@ impl ApplicationHandler for App {
             }
 
             // Create stretch strength uniform buffer
-            let stretch_strength = 0.5f32;
+            let stretch_strength = 2.5f32;
             // Single f32 uniform (stretch strength) serialized via encase UniformBuffer for consistency
             let mut stretch_encase = UniformBuffer::new(Vec::new());
             stretch_encase.write(&stretch_strength).expect("serialize stretch strength");
