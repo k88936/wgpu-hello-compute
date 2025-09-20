@@ -12,6 +12,7 @@ use crate::sphere::OverrideConstants;
 use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
 use wgpu::BufferUsages;
+use wgpu::wgt::BufferDescriptor;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -40,6 +41,8 @@ struct App {
     // Depth buffer
     depth_texture: Option<wgpu::Texture>,
     depth_view: Option<wgpu::TextureView>,
+    // MLS-MPM solver
+    solver: Option<solver::MLSMPMSolver>,
 }
 
 impl App {
@@ -126,36 +129,42 @@ impl ApplicationHandler for App {
                 }))
                 .expect("Failed to create device");
 
-            let points: Vec<sphere::types::PosVel> = {
-                let mut particles = Vec::with_capacity(1000);
-                for x in 0..10 {
-                    for y in 0..10 {
-                        for z in 0..10 {
-                            particles.push(sphere::types::PosVel {
-                                position: glam::Vec3::new(
-                                    (x as f32 - 4.5) * 0.1,
-                                    (y as f32 - 4.5) * 0.1,
-                                    (z as f32 - 4.5) * 0.1,
-                                ),
-                                v: glam::Vec3::new(0.0, 0.0, 0.0),
-                                density: 1.0,
-                            });
-                        }
-                    }
-                }
-                particles
-            };
-            // Serialize particle data using a single slice write so encase applies the correct stride (48 bytes per PosVel)
-            // Writing elements one-by-one can result in a tightly packed 32-byte layout (Rust repr(C)) instead of the WGSL std430 stride (48),
-            // causing all but the first particle to appear with zero size. A single slice write preserves proper padding per element.
-            let mut particle_storage = StorageBuffer::new(Vec::new());
-            particle_storage
-                .write(&points[..])
-                .expect("serialize particles slice");
-            let particles_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            // let points: Vec<sphere::types::PosVel> = {
+            //     let mut particles = Vec::with_capacity(1000);
+            //     for x in 0..10 {
+            //         for y in 0..10 {
+            //             for z in 0..10 {
+            //                 particles.push(sphere::types::PosVel {
+            //                     position: glam::Vec3::new(
+            //                         (x as f32 - 4.5) * 0.1,
+            //                         (y as f32 - 4.5) * 0.1,
+            //                         (z as f32 - 4.5) * 0.1,
+            //                     ),
+            //                     v: glam::Vec3::new(0.0, 0.0, 0.0),
+            //                     density: 1.0,
+            //                 });
+            //             }
+            //         }
+            //     }
+            //     particles
+            // };
+            // // Serialize particle data using a single slice write so encase applies the correct stride (48 bytes per PosVel)
+            // // Writing elements one-by-one can result in a tightly packed 32-byte layout (Rust repr(C)) instead of the WGSL std430 stride (48),
+            // // causing all but the first particle to appear with zero size. A single slice write preserves proper padding per element.
+            // let mut particle_storage = StorageBuffer::new(Vec::new());
+            // particle_storage
+            //     .write(&points[..])
+            //     .expect("serialize particles slice");
+            // let particles_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //     label: Some("particles"),
+            //     contents: particle_storage.as_ref(),
+            //     usage: wgpu::BufferUsages::STORAGE,
+            // });
+            let particles_buffer = device.create_buffer(&BufferDescriptor{
                 label: Some("particles"),
-                contents: particle_storage.as_ref(),
+                size: 80*10000,
                 usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
             });
 
             // Create initial uniform buffer with placeholder data
@@ -295,8 +304,11 @@ impl ApplicationHandler for App {
 
             self.pipeline = Some(pipeline);
             self.config = Some(config);
-            self.queue = Some(queue);
-            self.device = Some(device);
+            // Create MLS-MPM solver before moving device/queue into self
+            let solver = solver::MLSMPMSolver::new(&device, &particles_buffer, 10_000);
+            self.solver = Some(solver);
+            self.queue = Some(queue.clone());
+            self.device = Some(device.clone());
             self.adapter = Some(adapter);
             self.surface = Some(surface);
             self.window = Some(window);
@@ -309,6 +321,8 @@ impl ApplicationHandler for App {
             self.aux_rt_texture = Some(aux_rt_texture);
             self.depth_view = Some(depth_view);
             self.depth_texture = Some(depth_texture);
+            // Create MLS-MPM solver (reuse particles buffer for rendering as destination of copyPosition)
+            // solver already created above
         }
 
         // Kick off first frame
@@ -429,6 +443,11 @@ impl ApplicationHandler for App {
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("render-encoder"),
                 });
+
+                // Run simulation step (advance physics & write into renderer particle buffer)
+                if let (Some(solver), Some(queue)) = (self.solver.as_mut(), self.queue.as_ref()) {
+                    solver.execute(device, queue, &mut encoder, 1000); // target 1000 particles for now
+                }
 
                 {
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
