@@ -130,10 +130,12 @@ impl MLSMPMSolver {
 			})
 		}
 
-		let init_box_size = glam::Vec3::new(12.0, 12.0, 12.0);
+		// Adopt TS medium parameter set (index 1): init box size (60,60,60)
+		let init_box_size = glam::Vec3::new(60.0, 60.0, 60.0);
 		let real_box_size = init_box_size;
 		let num_particles_u32: u32 = 0;
-		let sphere_radius: f32 = 3.0;
+		// TS medium radius ~20 (from radiuses[1])
+		let sphere_radius: f32 = 20.0;
 
 		let real_box_size_buffer = create_uniform(device, &real_box_size, "real-box-size");
 		let init_box_size_buffer = create_uniform(device, &init_box_size, "init-box-size");
@@ -238,73 +240,72 @@ impl MLSMPMSolver {
 		}
 	}
 
-	/// Execute one simulation step: (optionally spawn) -> clear -> p2g passes -> updateGrid -> g2p -> copyPosition.
+	/// Execute one simulation step with TWO simulation substeps (matching original TS which loops twice):
+	/// For each substep: optional spawn -> clear -> p2g1 -> p2g2 -> updateGrid -> g2p -> copyPosition.
 	pub fn execute(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, target_num_particles: u32) {
-		// First pass: (optional) spawn new particles (simple strategy every other frame like TS)
-		if self.frame_count % 2 == 0 && self.num_particles < target_num_particles {
-			// Increase particle count in-place (here we just jump by 100 like TS shape 10x10)
-			let spawn_batch = 100.min(target_num_particles - self.num_particles);
-			self.num_particles += spawn_batch;
-			self.write_num_particles(queue);
-			// Dispatch spawn compute to initialize last N particles
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("spawn"), timestamp_writes: None });
-			cpass.set_pipeline(&self.spawn_particles_pipeline);
-			spawnParticles::set_bind_groups(&mut cpass, &self.spawn_particles_bg);
-			cpass.dispatch_workgroups(1, 1, 1); // workgroup_size(1)
-		}
+		for substep in 0..2 { // two substeps per frame
+			// Spawn new particles at most once per frame at beginning of first substep (TS does before loop; keep parity)
+			if substep == 0 && self.frame_count % 2 == 0 && self.num_particles < target_num_particles {
+				let spawn_batch = 100.min(target_num_particles - self.num_particles);
+				self.num_particles += spawn_batch;
+				self.write_num_particles(queue);
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("spawn"), timestamp_writes: None });
+				cpass.set_pipeline(&self.spawn_particles_pipeline);
+				spawnParticles::set_bind_groups(&mut cpass, &self.spawn_particles_bg);
+				cpass.dispatch_workgroups(1, 1, 1);
+			}
 
-		// Clear grid
-		{
-			let total_cells = (self.init_box_size.x * self.init_box_size.y * self.init_box_size.z) as u32;
-			let workgroups = (total_cells + 63) / 64; // workgroup_size(64)
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("clearGrid"), timestamp_writes: None });
-			cpass.set_pipeline(&self.clear_grid_pipeline);
-			clearGrid::set_bind_groups(&mut cpass, &self.clear_grid_bg);
-			cpass.dispatch_workgroups(workgroups, 1, 1);
+			// Clear grid (per substep so velocity from previous substep doesn't accumulate incorrectly)
+			{
+				let total_cells = (self.init_box_size.x * self.init_box_size.y * self.init_box_size.z) as u32;
+				let workgroups = (total_cells + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("clearGrid"), timestamp_writes: None });
+				cpass.set_pipeline(&self.clear_grid_pipeline);
+				clearGrid::set_bind_groups(&mut cpass, &self.clear_grid_bg);
+				cpass.dispatch_workgroups(workgroups, 1, 1);
+			}
+			// p2g1
+			{
+				let workgroups = (self.num_particles + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("p2g_1"), timestamp_writes: None });
+				cpass.set_pipeline(&self.p2g1_pipeline);
+				p2g_1::set_bind_groups(&mut cpass, &self.p2g1_bg);
+				cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
+			}
+			// p2g2
+			{
+				let workgroups = (self.num_particles + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("p2g_2"), timestamp_writes: None });
+				cpass.set_pipeline(&self.p2g2_pipeline);
+				p2g_2::set_bind_groups(&mut cpass, &self.p2g2_bg);
+				cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
+			}
+			// updateGrid
+			{
+				let total_cells = (self.init_box_size.x * self.init_box_size.y * self.init_box_size.z) as u32;
+				let workgroups = (total_cells + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("updateGrid"), timestamp_writes: None });
+				cpass.set_pipeline(&self.update_grid_pipeline);
+				updateGrid::set_bind_groups(&mut cpass, &self.update_grid_bg);
+				cpass.dispatch_workgroups(workgroups, 1, 1);
+			}
+			// g2p
+			{
+				let workgroups = (self.num_particles + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("g2p"), timestamp_writes: None });
+				cpass.set_pipeline(&self.g2p_pipeline);
+				g2p::set_bind_groups(&mut cpass, &self.g2p_bg);
+				cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
+			}
+			// copyPosition after each substep (TS copies each loop iteration)
+			{
+				let workgroups = (self.num_particles + 63) / 64;
+				let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("copyPosition"), timestamp_writes: None });
+				cpass.set_pipeline(&self.copy_position_pipeline);
+				copyPosition::set_bind_groups(&mut cpass, &self.copy_position_bg);
+				cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
+			}
 		}
-
-		// p2g1
-		{
-			let workgroups = (self.num_particles + 63) / 64;
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("p2g_1"), timestamp_writes: None });
-			cpass.set_pipeline(&self.p2g1_pipeline);
-			p2g_1::set_bind_groups(&mut cpass, &self.p2g1_bg);
-			cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
-		}
-		// p2g2
-		{
-			let workgroups = (self.num_particles + 63) / 64;
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("p2g_2"), timestamp_writes: None });
-			cpass.set_pipeline(&self.p2g2_pipeline);
-			p2g_2::set_bind_groups(&mut cpass, &self.p2g2_bg);
-			cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
-		}
-		// updateGrid
-		{
-			let total_cells = (self.init_box_size.x * self.init_box_size.y * self.init_box_size.z) as u32;
-			let workgroups = (total_cells + 63) / 64;
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("updateGrid"), timestamp_writes: None });
-			cpass.set_pipeline(&self.update_grid_pipeline);
-			updateGrid::set_bind_groups(&mut cpass, &self.update_grid_bg);
-			cpass.dispatch_workgroups(workgroups, 1, 1);
-		}
-		// g2p
-		{
-			let workgroups = (self.num_particles + 63) / 64;
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("g2p"), timestamp_writes: None });
-			cpass.set_pipeline(&self.g2p_pipeline);
-			g2p::set_bind_groups(&mut cpass, &self.g2p_bg);
-			cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
-		}
-		// copyPosition (write into renderer posvel buffer and densities)
-		{
-			let workgroups = (self.num_particles + 63) / 64;
-			let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("copyPosition"), timestamp_writes: None });
-			cpass.set_pipeline(&self.copy_position_pipeline);
-			copyPosition::set_bind_groups(&mut cpass, &self.copy_position_bg);
-			cpass.dispatch_workgroups(workgroups.max(1), 1, 1);
-		}
-
 		self.frame_count += 1;
 	}
 

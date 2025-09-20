@@ -8,7 +8,7 @@ mod copyPosition;
 mod clearGrid;
 mod solver;
 
-const TARGET_NUM_PARTICLES: u32 = 10_000; // demo goal
+const TARGET_NUM_PARTICLES: u32 = 600_000; // TS medium parameter set (mlsmpmNumParticleParams[1])
 
 use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
@@ -64,10 +64,10 @@ impl App {
                 100.0, // far plane
             );
 
-            // Auto-rotate camera around the original simulation domain (0..16 box),
-            // targeting its geometric center (8,8,8) without modifying shader positions.
-            let box_center = glam::Vec3::new(6.0, 6.0, 6.0);
-            let radius = 28.0; // Chosen to comfortably frame the 16-unit span at 45° FOV
+            // Auto-rotate camera around TS medium box (0..60) with center (30,30,30)
+            let box_center = glam::Vec3::new(30.0, 30.0, 30.0);
+            // Distance ~ init distance param mlsmpmInitDistances[1] = 70
+            let radius = 70.0;
             let angular_time = time * 0.05;
             let camera_x = box_center.x + radius * angular_time.cos();
             let camera_z = box_center.z + radius * angular_time.sin();
