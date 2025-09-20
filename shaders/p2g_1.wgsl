@@ -2,7 +2,8 @@
 import package::types::AtomCell as Cell;
 import package::types::Particle;
 
-override fixed_point_multiplier: f32;
+// Replaced override with compile-time constant
+const fixed_point_multiplier: f32 = 10000000.0; // 1e7
 
 fn encodeFixedPoint(floating_point: f32) -> i32 {
 	return i32(floating_point * fixed_point_multiplier);

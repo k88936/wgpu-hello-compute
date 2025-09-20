@@ -1,7 +1,8 @@
 import package::types::Cell;
 
-override fixed_point_multiplier: f32; 
-override dt: f32; 
+// Replaced overrides with compile-time constants
+const fixed_point_multiplier: f32 = 10000000.0; // 1e7
+const dt: f32 = 0.20; 
 
 @group(0) @binding(0) var<storage, read_write> cells: array<Cell>;
 @group(0) @binding(1) var<uniform> real_box_size: vec3f;

@@ -34,8 +34,9 @@ struct RenderUniforms {
 @group(0) @binding(1) var<uniform> uniforms: RenderUniforms;
 @group(0) @binding(2) var<uniform> stretchStrength: f32;
 
-override restDensity: f32;
-override densitySizeScale: f32;
+// Replaced overrides with compile-time constants
+const restDensity: f32 = 4.0;
+const densitySizeScale: f32 = 1.0;
 
 // assuming center is origin
 fn computeStretchedVertex(position: vec2f, velocity_dir: vec2f, strength: f32) -> vec2f {

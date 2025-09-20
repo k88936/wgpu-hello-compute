@@ -8,7 +8,8 @@ mod copyPosition;
 mod clearGrid;
 mod solver;
 
-use crate::sphere::OverrideConstants;
+const TARGET_NUM_PARTICLES: u32 = 5_000; // demo goal
+
 use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
 use wgpu::BufferUsages;
@@ -222,11 +223,7 @@ impl ApplicationHandler for App {
             let caps = surface.get_capabilities(&adapter);
             let format = caps.formats[0];
 
-            let overrides = &OverrideConstants {
-                restDensity: 1.0,
-                densitySizeScale: 1.0,
-            };
-            let vs = sphere::vs_entry(overrides);
+            let vs = sphere::vs_entry();
             let fs = sphere::fs_entry(
                 [
                     Some(wgpu::ColorTargetState {
@@ -240,7 +237,6 @@ impl ApplicationHandler for App {
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
-                overrides,
             );
 
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -446,7 +442,7 @@ impl ApplicationHandler for App {
 
                 // Run simulation step (advance physics & write into renderer particle buffer)
                 if let (Some(solver), Some(queue)) = (self.solver.as_mut(), self.queue.as_ref()) {
-                    solver.execute(device, queue, &mut encoder, 1000); // target 1000 particles for now
+                    solver.execute(device, queue, &mut encoder, TARGET_NUM_PARTICLES);
                 }
 
                 {
@@ -486,8 +482,9 @@ impl ApplicationHandler for App {
                     rpass.set_pipeline(pipeline);
                     // Set required bind group(s)
                     sphere::set_bind_groups(&mut rpass, bind_group);
-                    // Draw all 1000 particles as quads (6 vertices per instance)
-                    rpass.draw(0..6, 0..1000);
+                    // Draw only the currently spawned particles
+                    let instances = self.solver.as_ref().map(|s| s.num_particles).unwrap_or(0);
+                    if instances > 0 { rpass.draw(0..6, 0..instances); }
                 }
 
                 queue.submit(Some(encoder.finish()));

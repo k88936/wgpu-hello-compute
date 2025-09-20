@@ -54,9 +54,8 @@ export class MLSMPMSimulator {
 
     restDensity: number
 
-    constructor (particleBuffer: GPUBuffer, posvelBuffer: GPUBuffer, renderDiameter: number, device: GPUDevice, 
-        renderUniformBuffer: GPUBuffer, depthMapTextureView: GPUTextureView, canvas: HTMLCanvasElement) 
-    {
+    constructor(particleBuffer: GPUBuffer, posvelBuffer: GPUBuffer, renderDiameter: number, device: GPUDevice,
+        renderUniformBuffer: GPUBuffer, depthMapTextureView: GPUTextureView, canvas: HTMLCanvasElement) {
         this.device = device
         this.renderDiameter = renderDiameter
         this.frameCount = 0
@@ -72,79 +71,55 @@ export class MLSMPMSimulator {
 
         this.restDensity = 4.
 
-        const constants = {
-            stiffness: 3., 
-            restDensity: this.restDensity, 
-            dynamic_viscosity: 0.1, 
-            dt: 0.20, 
-            fixed_point_multiplier: 1e7, 
-        }
+        // Removed specialization constants: shader now uses WGSL const values instead of override.
 
         this.clearGridPipeline = device.createComputePipeline({
-            label: "clear grid pipeline", 
-            layout: 'auto', 
+            label: "clear grid pipeline",
+            layout: 'auto',
             compute: {
-                module: clearGridModule, 
+                module: clearGridModule,
             }
         })
         this.spawnParticlesPipeline = device.createComputePipeline({
-            label: "spawn particles pipeline", 
-            layout: 'auto', 
+            label: "spawn particles pipeline",
+            layout: 'auto',
             compute: {
-                module: spawnParticlesModule, 
+                module: spawnParticlesModule,
             }
         })
         this.p2g1Pipeline = device.createComputePipeline({
-            label: "p2g 1 pipeline", 
-            layout: 'auto', 
+            label: "p2g 1 pipeline",
+            layout: 'auto',
             compute: {
-                module: p2g1Module, 
-                constants: {
-                    'fixed_point_multiplier': constants.fixed_point_multiplier
-                }, 
+                module: p2g1Module,
             }
         })
         this.p2g2Pipeline = device.createComputePipeline({
-            label: "p2g 2 pipeline", 
-            layout: 'auto', 
+            label: "p2g 2 pipeline",
+            layout: 'auto',
             compute: {
-                module: p2g2Module, 
-                constants: {
-                    'fixed_point_multiplier': constants.fixed_point_multiplier, 
-                    'stiffness': constants.stiffness, 
-                    'rest_density': constants.restDensity, 
-                    'dynamic_viscosity': constants.dynamic_viscosity, 
-                    'dt': constants.dt, 
-                }, 
+                module: p2g2Module,
             }
         })
         this.updateGridPipeline = device.createComputePipeline({
-            label: "update grid pipeline", 
-            layout: 'auto', 
+            label: "update grid pipeline",
+            layout: 'auto',
             compute: {
-                module: updateGridModule, 
-                constants: {
-                    'fixed_point_multiplier': constants.fixed_point_multiplier, 
-                    'dt': constants.dt, 
-                }, 
+                module: updateGridModule,
             }
         });
         this.g2pPipeline = device.createComputePipeline({
-            label: "g2p pipeline", 
-            layout: 'auto', 
+            label: "g2p pipeline",
+            layout: 'auto',
             compute: {
-                module: g2pModule, 
-                constants: {
-                    'fixed_point_multiplier': constants.fixed_point_multiplier, 
-                    'dt': constants.dt, 
-                }, 
+                module: g2pModule,
             }
         });
         this.copyPositionPipeline = device.createComputePipeline({
-            label: "copy position pipeline", 
-            layout: 'auto', 
+            label: "copy position pipeline",
+            layout: 'auto',
             compute: {
-                module: copyPositionModule, 
+                module: copyPositionModule,
             }
         });
 
@@ -154,38 +129,38 @@ export class MLSMPMSimulator {
         const numParticlesValues = new ArrayBuffer(4);
         this.mouseInfoValues = new ArrayBuffer(32);
 
-        const cellBuffer = device.createBuffer({ 
-            label: 'cells buffer', 
-            size: this.cellStructSize * maxGridCount,  
+        const cellBuffer = device.createBuffer({
+            label: 'cells buffer',
+            size: this.cellStructSize * maxGridCount,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         })
         this.densityBuffer = device.createBuffer({
-            label: 'density buffer', 
-            size: 4 * numParticlesMax, 
+            label: 'density buffer',
+            size: 4 * numParticlesMax,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         })
         this.realBoxSizeBuffer = device.createBuffer({
-            label: 'real box size buffer', 
-            size: realBoxSizeValues.byteLength, 
+            label: 'real box size buffer',
+            size: realBoxSizeValues.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         })
         this.initBoxSizeBuffer = device.createBuffer({
-            label: 'init box size buffer', 
-            size: initBoxSizeValues.byteLength, 
+            label: 'init box size buffer',
+            size: initBoxSizeValues.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         })
         this.numParticlesBuffer = device.createBuffer({
-            label: 'number of particles buffer', 
-            size: numParticlesValues.byteLength, 
+            label: 'number of particles buffer',
+            size: numParticlesValues.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        }) 
+        })
         this.mouseInfoUniformBuffer = device.createBuffer({
-            label: 'mouse info buffer', 
-            size: this.mouseInfoValues.byteLength, 
+            label: 'mouse info buffer',
+            size: this.mouseInfoValues.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         })
         this.sphereRadiusBuffer = device.createBuffer({
-            label: 'sphere radius buffer', 
+            label: 'sphere radius buffer',
             size: 4, // single f32
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         })
@@ -202,67 +177,67 @@ export class MLSMPMSimulator {
 
         // BindGroup
         this.clearGridBindGroup = device.createBindGroup({
-            layout: this.clearGridPipeline.getBindGroupLayout(0), 
+            layout: this.clearGridPipeline.getBindGroupLayout(0),
             entries: [
-              { binding: 0, resource: { buffer: cellBuffer }}, 
-            ],  
+                { binding: 0, resource: { buffer: cellBuffer } },
+            ],
         })
         this.spawnParticlesBindGroup = device.createBindGroup({
-            layout: this.spawnParticlesPipeline.getBindGroupLayout(0), 
+            layout: this.spawnParticlesPipeline.getBindGroupLayout(0),
             entries: [
-              { binding: 0, resource: { buffer: particleBuffer }}, 
-              { binding: 1, resource: { buffer: this.initBoxSizeBuffer }}, 
-              { binding: 2, resource: { buffer: this.numParticlesBuffer }}
-            ],  
+                { binding: 0, resource: { buffer: particleBuffer } },
+                { binding: 1, resource: { buffer: this.initBoxSizeBuffer } },
+                { binding: 2, resource: { buffer: this.numParticlesBuffer } }
+            ],
         })
         this.p2g1BindGroup = device.createBindGroup({
-            layout: this.p2g1Pipeline.getBindGroupLayout(0), 
+            layout: this.p2g1Pipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: particleBuffer }}, 
-                { binding: 1, resource: { buffer: cellBuffer }}, 
-                { binding: 2, resource: { buffer: this.initBoxSizeBuffer }}, 
-                { binding: 3, resource: { buffer: this.numParticlesBuffer }}, 
-            ],  
+                { binding: 0, resource: { buffer: particleBuffer } },
+                { binding: 1, resource: { buffer: cellBuffer } },
+                { binding: 2, resource: { buffer: this.initBoxSizeBuffer } },
+                { binding: 3, resource: { buffer: this.numParticlesBuffer } },
+            ],
         })
         this.p2g2BindGroup = device.createBindGroup({
-            layout: this.p2g2Pipeline.getBindGroupLayout(0), 
+            layout: this.p2g2Pipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: particleBuffer }}, 
-                { binding: 1, resource: { buffer: cellBuffer }}, 
-                { binding: 2, resource: { buffer: this.initBoxSizeBuffer }}, 
-                { binding: 3, resource: { buffer: this.numParticlesBuffer }}, 
-                { binding: 4, resource: { buffer: this.densityBuffer }}
+                { binding: 0, resource: { buffer: particleBuffer } },
+                { binding: 1, resource: { buffer: cellBuffer } },
+                { binding: 2, resource: { buffer: this.initBoxSizeBuffer } },
+                { binding: 3, resource: { buffer: this.numParticlesBuffer } },
+                { binding: 4, resource: { buffer: this.densityBuffer } }
             ]
         })
         this.updateGridBindGroup = device.createBindGroup({
             layout: this.updateGridPipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: cellBuffer }},
-                { binding: 1, resource: { buffer: this.realBoxSizeBuffer }},
-                { binding: 2, resource: { buffer: this.initBoxSizeBuffer }},
-                { binding: 3, resource: { buffer: renderUniformBuffer }}, 
-                { binding: 4, resource: depthMapTextureView }, 
-                { binding: 5, resource: { buffer: this.mouseInfoUniformBuffer }}, 
+                { binding: 0, resource: { buffer: cellBuffer } },
+                { binding: 1, resource: { buffer: this.realBoxSizeBuffer } },
+                { binding: 2, resource: { buffer: this.initBoxSizeBuffer } },
+                { binding: 3, resource: { buffer: renderUniformBuffer } },
+                { binding: 4, resource: depthMapTextureView },
+                { binding: 5, resource: { buffer: this.mouseInfoUniformBuffer } },
             ],
         })
         this.g2pBindGroup = device.createBindGroup({
             layout: this.g2pPipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: particleBuffer }},
-                { binding: 1, resource: { buffer: cellBuffer }},
-                { binding: 2, resource: { buffer: this.realBoxSizeBuffer }},
-                { binding: 3, resource: { buffer: this.initBoxSizeBuffer }},
-                { binding: 4, resource: { buffer: this.numParticlesBuffer }}, 
-                { binding: 5, resource: { buffer: this.sphereRadiusBuffer }}, 
+                { binding: 0, resource: { buffer: particleBuffer } },
+                { binding: 1, resource: { buffer: cellBuffer } },
+                { binding: 2, resource: { buffer: this.realBoxSizeBuffer } },
+                { binding: 3, resource: { buffer: this.initBoxSizeBuffer } },
+                { binding: 4, resource: { buffer: this.numParticlesBuffer } },
+                { binding: 5, resource: { buffer: this.sphereRadiusBuffer } },
             ],
         })
         this.copyPositionBindGroup = device.createBindGroup({
             layout: this.copyPositionPipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: particleBuffer }}, 
-                { binding: 1, resource: { buffer: posvelBuffer }}, 
-                { binding: 2, resource: { buffer: this.numParticlesBuffer }}, 
-                { binding: 3, resource: { buffer: this.densityBuffer }}, 
+                { binding: 0, resource: { buffer: particleBuffer } },
+                { binding: 1, resource: { buffer: posvelBuffer } },
+                { binding: 2, resource: { buffer: this.numParticlesBuffer } },
+                { binding: 3, resource: { buffer: this.densityBuffer } },
             ]
         })
 
@@ -274,7 +249,7 @@ export class MLSMPMSimulator {
         const spacing = 0.55;
 
         this.numParticles = 0;
-        
+
         for (let j = 3; j < initBoxSize[1] * 0.80 && this.numParticles < numParticles; j += spacing) {
             for (let i = 3; i < initBoxSize[0] - 4 && this.numParticles < numParticles; i += spacing) {
                 for (let k = 3; k < initBoxSize[2] / 2 && this.numParticles < numParticles; k += spacing) {
@@ -290,12 +265,12 @@ export class MLSMPMSimulator {
                 }
             }
         }
-        
+
         let particles = new ArrayBuffer(mlsmpmParticleStructSize * this.numParticles);
         const oldView = new Uint8Array(particlesBuf);
         const newView = new Uint8Array(particles);
         newView.set(oldView.subarray(0, newView.length));
-        
+
         return particles;
     }
 
@@ -308,7 +283,7 @@ export class MLSMPMSimulator {
         }
         const initBoxSizeValues = new ArrayBuffer(12)
         const initBoxSizeViews = new Float32Array(initBoxSizeValues)
-        initBoxSizeViews.set(initBoxSize);    
+        initBoxSizeViews.set(initBoxSize);
         const sphereRadiusValues = new ArrayBuffer(4)
         const sphereRadiusViews = new Float32Array(sphereRadiusValues)
         sphereRadiusViews.set([sphereRadius])
@@ -326,7 +301,7 @@ export class MLSMPMSimulator {
             screenSize: new Float32Array(this.mouseInfoValues, 0, 2),
             mouseCoord: new Float32Array(this.mouseInfoValues, 8, 2),
             mouseVel: new Float32Array(this.mouseInfoValues, 16, 2),
-            mouseRadius : new Float32Array(this.mouseInfoValues, 24, 2),
+            mouseRadius: new Float32Array(this.mouseInfoValues, 24, 2),
         };
         canvasInfoViews.mouseCoord.set([mouseCoord[0], mouseCoord[1]])
         canvasInfoViews.mouseVel.set([mouseVel[0], mouseVel[1]])
@@ -341,28 +316,28 @@ export class MLSMPMSimulator {
             this.changeNumParticles(this.numParticles + 100)
         }
 
-        for (let i = 0; i < 2; i++) { 
+        for (let i = 0; i < 2; i++) {
             computePass.setBindGroup(0, this.clearGridBindGroup);
             computePass.setPipeline(this.clearGridPipeline);
-            computePass.dispatchWorkgroups(Math.ceil(this.gridCount / 64)) 
+            computePass.dispatchWorkgroups(Math.ceil(this.gridCount / 64))
             computePass.setBindGroup(0, this.p2g1BindGroup)
             computePass.setPipeline(this.p2g1Pipeline)
             computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))
             computePass.setBindGroup(0, this.p2g2BindGroup)
             computePass.setPipeline(this.p2g2Pipeline)
-            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64)) 
+            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))
             computePass.setBindGroup(0, this.updateGridBindGroup)
             computePass.setPipeline(this.updateGridPipeline)
-            computePass.dispatchWorkgroups(Math.ceil(this.gridCount / 64)) 
+            computePass.dispatchWorkgroups(Math.ceil(this.gridCount / 64))
             computePass.setBindGroup(0, this.g2pBindGroup)
             computePass.setPipeline(this.g2pPipeline)
-            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64)) 
+            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))
             computePass.setBindGroup(0, this.copyPositionBindGroup)
             computePass.setPipeline(this.copyPositionPipeline)
-            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))  
+            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))
             computePass.setBindGroup(0, this.copyPositionBindGroup)
             computePass.setPipeline(this.copyPositionPipeline)
-            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))  
+            computePass.dispatchWorkgroups(Math.ceil(this.numParticles / 64))
         }
         computePass.end()
 
