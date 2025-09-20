@@ -8,7 +8,7 @@ mod copyPosition;
 mod clearGrid;
 mod solver;
 
-const TARGET_NUM_PARTICLES: u32 = 5_000; // demo goal
+const TARGET_NUM_PARTICLES: u32 = 10_000; // demo goal
 
 use encase::{UniformBuffer, StorageBuffer};
 use wgpu::util::DeviceExt;
@@ -64,17 +64,21 @@ impl App {
                 100.0, // far plane
             );
 
-            // Auto-rotate camera around the origin
-            let radius = 2.0;
-            let time = time * 0.3;
-            let camera_x = radius * time.cos();
-            let camera_z = radius * time.sin();
-            let camera_position = glam::Vec3::new(camera_x, 0.0, camera_z);
+            // Auto-rotate camera around the original simulation domain (0..16 box),
+            // targeting its geometric center (8,8,8) without modifying shader positions.
+            let box_center = glam::Vec3::new(6.0, 6.0, 6.0);
+            let radius = 28.0; // Chosen to comfortably frame the 16-unit span at 45° FOV
+            let angular_time = time * 0.05;
+            let camera_x = box_center.x + radius * angular_time.cos();
+            let camera_z = box_center.z + radius * angular_time.sin();
+            // Slight elevated angle so we see depth and layering
+            let camera_y = box_center.y + 6.0; // tilt downward a bit
+            let camera_position = glam::Vec3::new(camera_x, camera_y, camera_z);
 
             let view_matrix = glam::Mat4::look_at_rh(
-                camera_position,                // camera position (rotating)
-                glam::Vec3::new(0.0, 0.0, 0.0), // always look at origin
-                glam::Vec3::Y,                  // up vector
+                camera_position,
+                box_center, // look at center of unshifted simulation box
+                glam::Vec3::Y,
             );
 
             // Create uniform buffer for render uniforms
@@ -163,7 +167,7 @@ impl ApplicationHandler for App {
             // });
             let particles_buffer = device.create_buffer(&BufferDescriptor{
                 label: Some("particles"),
-                size: 80*10000,
+                size: 80*TARGET_NUM_PARTICLES as u64,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             });
@@ -482,9 +486,8 @@ impl ApplicationHandler for App {
                     rpass.set_pipeline(pipeline);
                     // Set required bind group(s)
                     sphere::set_bind_groups(&mut rpass, bind_group);
-                    // Draw only the currently spawned particles
-                    let instances = self.solver.as_ref().map(|s| s.num_particles).unwrap_or(0);
-                    if instances > 0 { rpass.draw(0..6, 0..instances); }
+                    // Draw all 1000 particles as quads (6 vertices per instance)
+                    rpass.draw(0..6, 0..TARGET_NUM_PARTICLES);
                 }
 
                 queue.submit(Some(encoder.finish()));

@@ -130,10 +130,10 @@ impl MLSMPMSolver {
 			})
 		}
 
-		let init_box_size = glam::Vec3::new(16.0, 16.0, 16.0);
+		let init_box_size = glam::Vec3::new(12.0, 12.0, 12.0);
 		let real_box_size = init_box_size;
 		let num_particles_u32: u32 = 0;
-		let sphere_radius: f32 = 4.0;
+		let sphere_radius: f32 = 3.0;
 
 		let real_box_size_buffer = create_uniform(device, &real_box_size, "real-box-size");
 		let init_box_size_buffer = create_uniform(device, &init_box_size, "init-box-size");
